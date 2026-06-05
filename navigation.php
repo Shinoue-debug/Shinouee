@@ -11,7 +11,7 @@ $menu = [
     <ul>
         <?php foreach ($menu as $href => $titre) : ?>
             <li>
-                <a href="<?= $href ?>"<?php if ($page_courante === $href) echo ' class="actif"'; ?>>
+                <a href="<?= $href ?>" <?php if ($page_courante === $href) echo 'class="actif"'; ?>>
                     <?= $titre ?>
                 </a>
             </li>
