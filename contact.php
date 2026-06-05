@@ -1,167 +1,238 @@
-<?php require 'functions.php'; ?>
 <?php
-$contact = [
-    'name'    => '',
-    'email'   => '',
-    'message' => '',
-];
+require_once 'fonctions.php';
+require_once 'config/connexion.php';
 
-$projet = [
-    'project_name' => '',
-    'description'  => '',
-    'budget'       => '',
-];
+enregistrer_visite($pdo, 'contact');
+
+$contact_nom = '';
+$contact_email = '';
+$contact_message = '';
+
+$demande_nom = '';
+$demande_email = '';
+$demande_type = '';
+$demande_description = '';
+$demande_budget = '';
 
 $erreurs_contact = [];
-$erreurs_projet = [];
+$erreurs_demande = [];
 $succes_contact = false;
-$succes_projet = false;
+$succes_demande = false;
+
+// Générer token CSRF
+$csrf_token = generer_token_csrf();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifier_token_csrf($_POST['csrf_token'] ?? '')) {
+        die("Erreur CSRF : formulaire invalide.");
+    }
+    
     $formulaire = $_POST['formulaire'] ?? '';
 
+    // Traitement formulaire contact
     if ($formulaire === 'contact') {
-        $contact['name']    = nettoyer($_POST['name'] ?? '');
-        $contact['email']   = nettoyer($_POST['email'] ?? '');
-        $contact['message'] = nettoyer($_POST['message'] ?? '');
+        $contact_nom = nettoyer($_POST['nom'] ?? '');
+        $contact_email = trim($_POST['email'] ?? '');
+        $contact_message = nettoyer($_POST['message'] ?? '');
 
-        $raw_email = trim($_POST['email'] ?? '');
-
-        if (!champ_requis($contact['name'])) {
-            $erreurs_contact['name'] = 'Le nom est obligatoire.';
+        if (!champ_requis($contact_nom)) {
+            $erreurs_contact['nom'] = 'Le nom est obligatoire.';
         }
 
-        if (!champ_requis($raw_email)) {
+        if (!champ_requis($contact_email)) {
             $erreurs_contact['email'] = 'L\'adresse e-mail est obligatoire.';
-        } elseif (!filter_var($raw_email, FILTER_VALIDATE_EMAIL)) {
+        } elseif (!valider_email($contact_email)) {
             $erreurs_contact['email'] = 'L\'adresse e-mail est invalide.';
         }
 
-        if (!champ_requis($contact['message'])) {
+        if (!champ_requis($contact_message)) {
             $erreurs_contact['message'] = 'Le message ne peut pas être vide.';
         }
 
         if (empty($erreurs_contact)) {
-            $succes_contact = true;
+            try {
+                $stmt = $pdo->prepare("INSERT INTO messages_contact (nom, email, message, date_envoi) VALUES (:nom, :email, :message, NOW())");
+                $stmt->execute([
+                    ':nom' => $contact_nom,
+                    ':email' => $contact_email,
+                    ':message' => $contact_message
+                ]);
+                $succes_contact = true;
+                
+                // Réinitialiser les champs
+                $contact_nom = $contact_email = $contact_message = '';
+            } catch (PDOException $e) {
+                error_log("Erreur insertion message contact : " . $e->getMessage());
+                $erreurs_contact['general'] = "Une erreur est survenue. Veuillez réessayer.";
+            }
         }
     }
 
+    // Traitement formulaire demande projet
     if ($formulaire === 'demande_projet') {
-        $projet['project_name'] = nettoyer($_POST['project-name'] ?? '');
-        $projet['description']  = nettoyer($_POST['description'] ?? '');
-        $projet['budget']       = nettoyer($_POST['budget'] ?? '');
+        $demande_nom = nettoyer($_POST['nom'] ?? '');
+        $demande_email = trim($_POST['email'] ?? '');
+        $demande_type = nettoyer($_POST['type_projet'] ?? '');
+        $demande_description = nettoyer($_POST['description'] ?? '');
+        $demande_budget = nettoyer($_POST['budget'] ?? '');
 
-        if (!champ_requis($projet['project_name'])) {
-            $erreurs_projet['project_name'] = 'Le nom du projet est obligatoire.';
+        if (!champ_requis($demande_nom)) {
+            $erreurs_demande['nom'] = 'Le nom est obligatoire.';
         }
 
-        if (!champ_requis($projet['description'])) {
-            $erreurs_projet['description'] = 'La description est obligatoire.';
+        if (!champ_requis($demande_email)) {
+            $erreurs_demande['email'] = 'L\'adresse e-mail est obligatoire.';
+        } elseif (!valider_email($demande_email)) {
+            $erreurs_demande['email'] = 'L\'adresse e-mail est invalide.';
         }
 
-        if (!champ_requis($projet['budget'])) {
-            $erreurs_projet['budget'] = 'Le budget estimé est requis.';
+        if (!champ_requis($demande_type)) {
+            $erreurs_demande['type_projet'] = 'Le type de projet est obligatoire.';
         }
 
-        if (empty($erreurs_projet)) {
-            $succes_projet = true;
+        if (!champ_requis($demande_description)) {
+            $erreurs_demande['description'] = 'La description est obligatoire.';
+        }
+
+        if (empty($erreurs_demande)) {
+            try {
+                $stmt = $pdo->prepare("INSERT INTO demandes_projet (nom, email, type_projet, description, budget, date_demande) VALUES (:nom, :email, :type, :description, :budget, NOW())");
+                $stmt->execute([
+                    ':nom' => $demande_nom,
+                    ':email' => $demande_email,
+                    ':type' => $demande_type,
+                    ':description' => $demande_description,
+                    ':budget' => $demande_budget ?: null
+                ]);
+                $succes_demande = true;
+                
+                // Réinitialiser les champs
+                $demande_nom = $demande_email = $demande_type = $demande_description = $demande_budget = '';
+            } catch (PDOException $e) {
+                error_log("Erreur insertion demande projet : " . $e->getMessage());
+                $erreurs_demande['general'] = "Une erreur est survenue. Veuillez réessayer.";
+            }
         }
     }
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contact - Shinouee</title>
-    <link rel="stylesheet" href="css1/style.css">
+    <link rel="stylesheet" href="css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <?php require 'composants/navigation.php'; ?>
-    <header>
-        <button class="theme-toggle" onclick="document.body.classList.toggle('dark')">🌙 Mode sombre</button>
-        <h1>Bienvenue sur mon portfolio</h1>
-        <p>Je suis Haby Sow, aspirante hackeuse , curieuse du code , exploratrice des failles.</p>
-    </header>
+    <input type="checkbox" id="darkModeToggle" class="dark-mode-checkbox">
+    <div class="wrapper">
+        <label for="darkModeToggle" class="theme-toggle-label">🌙 Mode sombre</label>
 
-    <section class="contact">
-        <h2>Contactez-moi</h2>
+        <?php require 'navigation.php'; ?>
 
-        <?php if ($succes_contact) : ?>
-            <div class="success">Merci, votre message a bien été reçu.</div>
-        <?php endif; ?>
+        <main>
+            <header class="page-header">
+                <h1>Bienvenue sur mon portfolio</h1>
+                <p>Je suis Haby Sow, aspirante hackeuse, curieuse du code, exploratrice des failles.</p>
+            </header>
 
-        <form action="contact.php" method="post">
-            <input type="hidden" name="formulaire" value="contact">
-            <label for="name">Nom :</label>
-            <input type="text" id="name" name="name" value="<?= $contact['name'] ?>">
-            <?php if (isset($erreurs_contact['name'])) : ?>
-                <span class="error"><?= $erreurs_contact['name'] ?></span>
-            <?php endif; ?>
+            <section class="contact">
+                <h2>Contactez-moi</h2>
+                <?php if ($succes_contact) : ?>
+                    <div class="success">Merci ! Votre message a bien été envoyé.</div>
+                <?php endif; ?>
+                <?php if (isset($erreurs_contact['general'])) : ?>
+                    <div class="error"><?= $erreurs_contact['general'] ?></div>
+                <?php endif; ?>
 
-            <label for="email">Email :</label>
-            <input type="text" id="email" name="email" value="<?= $contact['email'] ?>">
-            <?php if (isset($erreurs_contact['email'])) : ?>
-                <span class="error"><?= $erreurs_contact['email'] ?></span>
-            <?php endif; ?>
+                <form action="contact.php" method="post">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="formulaire" value="contact">
+                    
+                    <div class="form-group">
+                        <label for="nom_contact">Nom :</label>
+                        <input type="text" id="nom_contact" name="nom" value="<?= nettoyer($contact_nom) ?>">
+                        <?php if (isset($erreurs_contact['nom'])) : ?>
+                            <span class="error"><?= $erreurs_contact['nom'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="email_contact">Email :</label>
+                        <input type="email" id="email_contact" name="email" value="<?= nettoyer($contact_email) ?>">
+                        <?php if (isset($erreurs_contact['email'])) : ?>
+                            <span class="error"><?= $erreurs_contact['email'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="message_contact">Message :</label>
+                        <textarea id="message_contact" name="message"><?= nettoyer($contact_message) ?></textarea>
+                        <?php if (isset($erreurs_contact['message'])) : ?>
+                            <span class="error"><?= $erreurs_contact['message'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <button type="submit">Envoyer</button>
+                </form>
 
-            <label for="message">Message :</label>
-            <textarea id="message" name="message"><?= $contact['message'] ?></textarea>
-            <?php if (isset($erreurs_contact['message'])) : ?>
-                <span class="error"><?= $erreurs_contact['message'] ?></span>
-            <?php endif; ?>
+                <h2>Demande de projet</h2>
+                <?php if ($succes_demande) : ?>
+                    <div class="success">Votre demande de projet a bien été prise en compte.</div>
+                <?php endif; ?>
+                <?php if (isset($erreurs_demande['general'])) : ?>
+                    <div class="error"><?= $erreurs_demande['general'] ?></div>
+                <?php endif; ?>
 
-            <button type="submit">Envoyer</button>
-        </form>
+                <form action="contact.php" method="post">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="formulaire" value="demande_projet">
+                    
+                    <div class="form-group">
+                        <label for="nom_demande">Nom :</label>
+                        <input type="text" id="nom_demande" name="nom" value="<?= nettoyer($demande_nom) ?>">
+                        <?php if (isset($erreurs_demande['nom'])) : ?>
+                            <span class="error"><?= $erreurs_demande['nom'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="email_demande">Email :</label>
+                        <input type="email" id="email_demande" name="email" value="<?= nettoyer($demande_email) ?>">
+                        <?php if (isset($erreurs_demande['email'])) : ?>
+                            <span class="error"><?= $erreurs_demande['email'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="type_projet">Type de projet :</label>
+                        <input type="text" id="type_projet" name="type_projet" value="<?= nettoyer($demande_type) ?>">
+                        <?php if (isset($erreurs_demande['type_projet'])) : ?>
+                            <span class="error"><?= $erreurs_demande['type_projet'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="description_demande">Description :</label>
+                        <textarea id="description_demande" name="description"><?= nettoyer($demande_description) ?></textarea>
+                        <?php if (isset($erreurs_demande['description'])) : ?>
+                            <span class="error"><?= $erreurs_demande['description'] ?></span>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="budget">Budget estimé :</label>
+                        <input type="text" id="budget" name="budget" value="<?= nettoyer($demande_budget) ?>">
+                    </div>
+                    
+                    <button type="submit">Envoyer demande</button>
+                </form>
+            </section>
+        </main>
 
-        <h2>Demande de projet</h2>
-
-        <?php if ($succes_projet) : ?>
-            <div class="success">
-                Votre demande de projet a bien été prise en compte.
-                <strong>Récapitulatif :</strong>
-                <ul>
-                    <li>Projet : <?= $projet['project_name'] ?></li>
-                    <li>Description : <?= $projet['description'] ?></li>
-                    <li>Budget : <?= $projet['budget'] ?></li>
-                </ul>
-            </div>
-        <?php endif; ?>
-
-        <form action="contact.php" method="post">
-            <input type="hidden" name="formulaire" value="demande_projet">
-            <label for="project-name">Nom du projet :</label>
-            <input type="text" id="project-name" name="project-name" value="<?= $projet['project_name'] ?>">
-            <?php if (isset($erreurs_projet['project_name'])) : ?>
-                <span class="error"><?= $erreurs_projet['project_name'] ?></span>
-            <?php endif; ?>
-
-            <label for="description">Description :</label>
-            <textarea id="description" name="description"><?= $projet['description'] ?></textarea>
-            <?php if (isset($erreurs_projet['description'])) : ?>
-                <span class="error"><?= $erreurs_projet['description'] ?></span>
-            <?php endif; ?>
-
-            <label for="budget">Budget estimé :</label>
-            <input type="text" id="budget" name="budget" value="<?= $projet['budget'] ?>">
-            <?php if (isset($erreurs_projet['budget'])) : ?>
-                <span class="error"><?= $erreurs_projet['budget'] ?></span>
-            <?php endif; ?>
-
-            <button type="submit">Envoyer demande</button>
-        </form>
-    </section>
-
-    <footer>
-        <p>© 2026 - SHINOUEE</p>
-        <p>Aie de la détermination et dépasse ta génération. » – Cheikh Ahmadou Bamba</p>
-       
-        <div class="social-links">
-            <a href="https://github.com/Shinoue-debug/Portfolio-Shinoue.git" target="_blank">GitHub</a>
-            <a href="mailto:sowh07331@gmail.com">Email</a>
-        </div>
-    </footer>
+        <?php require 'pied-de-page.php'; ?>
+    </div>
 </body>
 </html>
